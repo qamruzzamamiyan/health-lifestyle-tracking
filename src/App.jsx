@@ -6,6 +6,8 @@ import BackupManager from "./components/BackupManager";
 import RoutineSummaryCard from "./components/RoutineSummaryCard";
 import RoutineTracker from "./components/RoutineTracker";
 import { useState, useEffect } from "react";
+
+
 import NutritionTracker from "./components/NutritionTracker";
 import SettingsPage, {
   DEFAULT_SETTINGS
@@ -32,7 +34,8 @@ import {
   CheckCircle2,
   Target,
   Sparkles,
-  Download 
+  Download ,
+  ArrowLeft
 } from "lucide-react";
 
 const modules = [
@@ -394,6 +397,24 @@ const latestWeight = [...weightEntries]
               >
                 <Menu size={23} />
               </button>
+
+{/* BACK TO DASHBOARD BUTTON */}
+{activePage !== "dashboard" && (
+  <button
+    type="button"
+    onClick={() => navigate("dashboard")}
+    aria-label="Back to Dashboard"
+    title="Back to Dashboard"
+    className="flex shrink-0 items-center justify-center
+      rounded-xl border border-slate-200 bg-white
+      p-2.5 text-slate-700 transition
+      hover:border-emerald-300 hover:bg-emerald-50
+      hover:text-emerald-700"
+  >
+    <ArrowLeft size={20} />
+  </button>
+)}
+
 
               <div>
                 <h2 className="text-lg font-bold text-slate-900">
