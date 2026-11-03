@@ -548,8 +548,14 @@ const latestWeight = [...weightEntries]
 
                   <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
 
-                    {modules.map((item) => {
-                      const Icon = item.icon;
+                    
+{modules
+  .filter((item) =>
+    !["settings", "analytics", "backup"].includes(item.id)
+  )
+  .map((item) => {
+    const Icon = item.icon;
+
 
                       return (
                         <button
