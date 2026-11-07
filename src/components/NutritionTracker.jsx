@@ -1,6 +1,8 @@
 
 import { useState } from "react";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Sparkles } from "lucide-react";
+import RegularMealManager from "./RegularMealManager";
+import { lookupOfflineUsda } from "../utils/usdaOfflineMatcher";
 
 // Approximate nutrition per indicated unit
 const foods = [
@@ -17,6 +19,89 @@ const foods = [
 ];
 
 const round1 = (n) => Math.round(n * 10) / 10;
+
+// STEP 17D FREE: Local, rule-based Hindi/Hinglish food understanding.
+// No paid AI calls, access codes, or AI API keys are needed.
+// A match is accepted only if food type + serving unit are known.
+const SMART_FOOD_ALIASES = {
+  egg: ["boiled egg", "boiled eggs", "ubla anda", "uble ande", "uble anda", "boiled anda", "boiled ande"],
+  banana: ["banana", "bananas", "kela", "kele"],
+  milk: ["ml full cream milk", "ml full cream doodh", "ml fullcream milk", "milliliter full cream milk", "millilitre full cream milk"],
+  toned: ["ml toned milk", "ml toned doodh", "milliliter toned milk", "millilitre toned milk"],
+  almond: ["almond", "almonds", "badam"],
+  honey: ["tsp honey", "teaspoon honey", "tsp shahad", "chammach honey"],
+  peanut: ["tbsp peanut butter", "tablespoon peanut butter", "tbsp peanut spread"],
+  chapati: ["chapati", "chapatis", "roti", "rotis", "phulka", "phulkas"],
+  paneer: ["bowl paneer gravy", "bowl paneer curry", "bowl paneer sabzi"],
+  amla: ["amla murabba", "amla ka murabba", "piece amla murabba"]
+};
+
+function normalizeFoodPhrase(text) {
+  return String(text)
+    .trim()
+    .toLowerCase()
+    .replace(/[।.!]+$/g, "")
+    .replace(/\s+/g, " ");
+}
+
+function parseLocalMeal(description) {
+  const pieces = description
+    .split(/\s*(?:,|\+|;|\band\b|\baur\b|और)\s*/i)
+    .map(normalizeFoodPhrase)
+    .filter(Boolean);
+
+  const items = [];
+  const unknown = [];
+
+  for (const piece of pieces) {
+    const match = piece.match(/^(\d+(?:\.\d+)?)\s*(.+)$/);
+    const qty = match ? Number(match[1]) : 0;
+    const foodPhrase = match ? match[2].trim() : "";
+
+    if (!Number.isFinite(qty) || qty <= 0 || qty > 10000) {
+      unknown.push(piece);
+      continue;
+    }
+
+    const food = foods.find(f => SMART_FOOD_ALIASES[f.id]?.includes(foodPhrase));
+    if (!food) {
+      unknown.push(piece);
+      continue;
+    }
+
+    items.push({
+      foodId: food.id,
+      name: food.name,
+      quantity: qty,
+      unit: food.unit,
+      calories: round1(qty * food.kcal),
+      protein: round1(qty * food.protein),
+      source: "Free offline catalog"
+    });
+  }
+
+  return { items, unknown };
+}
+
+
+// STEP 17C: Only explicit gram/kilogram quantities can be scaled using
+// USDA per-100-g values. Count, bowl, ml, oil and recipe weights need
+// their own verified conversion rules (later steps).
+function parseGramItem(input) {
+  const match = input.match(/^(\d+(?:\.\d+)?)\s*(g|gm|gram|grams|gramme|grammes|kg|kilogram|kilograms)\s+(.+)$/i);
+  if (!match) return null;
+  const amount = Number(match[1]);
+  const grams = /^(kg|kilogram|kilograms)$/i.test(match[2]) ? amount * 1000 : amount;
+  const foodName = match[3].trim().replace(/\s+/g, " ");
+  if (!Number.isFinite(grams) || grams <= 0 || grams > 20000 || foodName.length < 2) return null;
+  return { grams, foodName, display: input };
+}
+
+async function lookupGramFood(item) {
+  // Search local static USDA JSON, not a paid API.
+  // Candidate is explicitly unconfirmed until the user approves its food name.
+  return lookupOfflineUsda(item.foodName, item.grams);
+}
 
 function localDate() {
   const d = new Date();
@@ -39,6 +124,11 @@ export default function NutritionTracker({ entries, setEntries,calorieGoal = 215
   const [customCalories, setCustomCalories] = useState("");
   const [customProtein, setCustomProtein] = useState("");
   const [editingId, setEditingId] = useState(null);
+
+  // Smart free-text meal input, independent of the existing Add Food form.
+  const [smartText, setSmartText] = useState("");
+  const [smartResult, setSmartResult] = useState(null);
+  const [smartLoading, setSmartLoading] = useState(false);
 
   const selectedFood = foods.find(f => f.id === foodId) || foods[0];
   const dayEntries = entries.filter(e => e.date === date);
@@ -135,6 +225,89 @@ export default function NutritionTracker({ entries, setEntries,calorieGoal = 215
     if (editingId === id) setEditingId(null);
   }
 
+  async function calculateSmartMeal() {
+    if (smartLoading || !smartText.trim()) return;
+    setSmartLoading(true);
+    setSmartResult(null);
+    try {
+      if (smartText.length > 400) {
+        setSmartResult({ items: [], unknown: ["Keep food input within 400 characters."] });
+        return;
+      }
+
+      const parts = smartText.split(/\s*(?:,|\+|;|\band\b|\baur\b|और)\s*/i).filter(Boolean);
+      if (parts.length > 8) {
+        setSmartResult({ items: [], unknown: ["Please enter up to 8 foods at once."] });
+        return;
+      }
+
+      // Free Hindi/Hinglish local parser: no paid AI request.
+      const local = parseLocalMeal(smartText);
+      const items = local.items.map(i => ({ ...i, source: "Offline catalog" }));
+      const unknown = [];
+
+      // Online lookup only for unrecognized items with explicit gram weights.
+      // Failures remain unresolved: no invented nutrition values.
+      const resolved = await Promise.all(local.unknown.map(async (part) => {
+        const weighted = parseGramItem(part);
+        if (!weighted) {
+          return { error: `${part} — specify grams (e.g. 150 g cooked rice), or use a known offline unit.` };
+        }
+        try {
+          return await lookupGramFood(weighted);
+        } catch (error) {
+          return { error: `${part} — ${error.message || "Online lookup failed"}` };
+        }
+      }));
+
+      for (const result of resolved) {
+        if (result.error) unknown.push(result.error);
+        else items.push(result);
+      }
+      setSmartResult({ items, unknown });
+    } finally {
+      setSmartLoading(false);
+    }
+  }
+
+  function confirmSmartMatch(index) {
+    setSmartResult(previous => {
+      if (!previous || !previous.items?.[index]?.requiresConfirmation) return previous;
+      const items = previous.items.map((item, idx) =>
+        idx === index ? { ...item, requiresConfirmation: false } : item
+      );
+      return { ...previous, items };
+    });
+  }
+
+  function addSmartMeal() {
+    if (!smartResult || smartResult.items.length === 0 || smartResult.unknown.length > 0 || smartLoading ||
+        smartResult.items.some(item => item.requiresConfirmation)) {
+      return;
+    }
+
+    const records = smartResult.items.map(item => ({
+      kind: item.foodId ? "preset" : "custom",
+      foodId: item.foodId ?? null,
+      name: item.foodId ? item.name : item.displayName,
+      quantity: item.foodId ? item.quantity : 1,
+      unit: item.foodId ? item.unit : "serving",
+      calories: item.calories,
+      protein: item.protein,
+      ...(item.carbs != null ? { carbs: item.carbs } : {}),
+      ...(item.fat != null ? { fat: item.fat } : {}),
+      source: item.source,
+      ...(item.fdcId ? { fdcId: item.fdcId, matchedName: item.matchedName } : {}),
+      id: crypto.randomUUID(),
+      date,
+      meal
+    }));
+
+    setEntries(previous => [...previous, ...records]);
+    setSmartText("");
+    setSmartResult(null);
+  }
+
   const inputStyle =
     "mt-2 w-full rounded-xl border border-slate-200 bg-white p-3 " +
     "text-sm outline-none focus:border-emerald-500";
@@ -205,6 +378,147 @@ export default function NutritionTracker({ entries, setEntries,calorieGoal = 215
         </div>
 
       </div>
+
+      {/* SMART FREE-TEXT MEAL INPUT — STEP 17A */}
+      <section className="space-y-4 rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          <Sparkles size={22} className="mt-1 text-emerald-600" />
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Smart Calorie Calculator</h3>
+            <p className="mt-1 text-sm text-slate-500">
+              Type foods in Hindi, Hinglish or English. Known items work offline;
+              gram-based foods use the local USDA database. Verify suggested food matches.
+            </p>
+          </div>
+        </div>
+
+        <label className="block text-sm font-medium">
+          What did you eat?
+          <textarea
+            rows={3}
+            value={smartText}
+            onChange={e => {
+              setSmartText(e.target.value);
+              setSmartResult(null);
+            }}
+            placeholder="2 boiled eggs, 1 banana, 250 ml full cream milk"
+            className={inputStyle}
+          />
+        </label>
+
+        <label className="block text-sm font-medium">
+          Meal type
+          <select
+            value={meal}
+            onChange={e => setMeal(e.target.value)}
+            className={inputStyle}
+          >
+            {["Breakfast", "Lunch", "Snacks", "Dinner"].map(type => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
+        </label>
+
+        <button
+          type="button"
+          onClick={calculateSmartMeal}
+          disabled={!smartText.trim() || smartLoading}
+          className="rounded-xl bg-emerald-600 px-5 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {smartLoading ? "Calculating..." : "Calculate Calories"}
+        </button>
+
+        {smartResult && (
+          <div className="space-y-3 rounded-xl bg-slate-50 p-4">
+            {smartResult.items.length > 0 && (
+              <>
+                <h4 className="font-semibold text-slate-800">Nutrition breakdown</h4>
+                {smartResult.items.map((item, index) => (
+                  <div key={`${item.foodId || item.fdcId || item.name}-${index}`} className="space-y-1 border-b border-slate-200 pb-2 text-sm">
+                    <div className="flex flex-wrap justify-between gap-2">
+                      <span>{item.displayName || `${item.quantity} ${item.unit} × ${item.name}`}</span>
+                      <span className="font-medium">{item.calories} kcal · {item.protein} g protein</span>
+                    </div>
+                    {item.source && <p className="text-xs text-slate-500">Source: {item.source}</p>}
+                    {item.matchedName && (
+                      <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-2">
+                        <p className="text-xs text-amber-900">USDA candidate: <strong>{item.matchedName}</strong></p>
+                        <p className="text-xs text-amber-800">{item.matchMessage || "Check food and preparation before logging."}</p>
+                        {item.requiresConfirmation ? (
+                          <button type="button" onClick={() => confirmSmartMatch(index)}
+                            className="rounded-lg bg-amber-700 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-800">
+                            Yes, this matches my food
+                          </button>
+                        ) : (
+                          <p className="text-xs font-semibold text-emerald-700">Food match confirmed by you. Nutrition remains an estimate.</p>
+                        )}
+                      </div>
+                    )}
+                    {item.carbs != null && item.fat != null && (
+                      <p className="text-xs text-slate-500">Carbs: {item.carbs} g · Fat: {item.fat} g</p>
+                    )}
+                  </div>
+                ))}
+                {smartResult.items.some(item => item.requiresConfirmation) && (
+                  <p className="text-xs font-medium text-amber-800">
+                    Confirm all USDA matched foods before saving to Daily Nutrition or Regular Meals.
+                  </p>
+                )}
+                <p className="border-t border-slate-200 pt-3 text-sm font-semibold text-emerald-700">
+                  Estimated total: {round1(smartResult.items.reduce((sum, item) => sum + item.calories, 0))} kcal
+                  {" · "}
+                  {round1(smartResult.items.reduce((sum, item) => sum + item.protein, 0))} g protein
+                </p>
+              </>
+            )}
+
+            {smartResult.unknown.length > 0 && (
+              <div role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+                <p className="font-semibold">Could not calculate these items:</p>
+                <ul className="mt-1 list-inside list-disc">
+                  {smartResult.unknown.map((item, index) => (
+                    <li key={`${item}-${index}`}>{item}</li>
+                  ))}
+                </ul>
+                <p className="mt-2">
+                  Use a clearer description and quantity in grams for USDA lookup.
+                  No calories were guessed. Add All is disabled until every item is resolved.
+                </p>
+              </div>
+            )}
+
+            {smartResult.items.length === 0 && smartResult.unknown.length === 0 && (
+              <p className="text-sm text-slate-600">Enter at least one food with its quantity.</p>
+            )}
+
+            <button
+              type="button"
+              disabled={smartResult.items.length === 0 || smartResult.unknown.length > 0 || smartLoading || smartResult.items.some(item => item.requiresConfirmation)}
+              onClick={addSmartMeal}
+              className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Plus size={17} /> Add All to {date}
+            </button>
+          </div>
+        )}
+
+        {/* STEP 17E: Searchable, one-click offline weekly meals */}
+        <RegularMealManager
+          smartResult={smartResult}
+          smartText={smartText}
+          date={date}
+          meal={meal}
+          entries={entries}
+          setEntries={setEntries}
+        />
+
+        <p className="text-xs leading-5 text-slate-500">
+          Free offline: 2 uble ande, 1 kela, 250 ml full cream doodh.
+          Free local USDA dataset: 150 g cooked rice or 100 g chicken breast.
+          No paid AI service. Unknown foods and unverified bowl sizes are not guessed.
+          Regular weekly meals can be saved and searched below.
+        </p>
+      </section>
 
       {/* FOOD ENTRY FORM */}
       <form

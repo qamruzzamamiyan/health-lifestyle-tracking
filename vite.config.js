@@ -13,9 +13,13 @@ export default defineConfig({
       registerType: "autoUpdate",
 
       includeAssets: [
+        "data/usda_foods_v1.json",
         "favicon.svg",
         "apple-touch-icon.png"
       ],
+      workbox: {
+       maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
+        },
 
       manifest: {
         name: "Health & Lifestyle Tracking",
