@@ -17,6 +17,14 @@ const BLOCKED = {
   chicken: new Set(["nugget", "nuggets", "soup", "noodle", "sandwich", "salad", "sausage", "stock", "broth", "lunchmeat", "sliced", "deli", "roll", "processed", "breaded"]),
 };
 const GENERIC = new Set(["rice", "chicken", "dal", "milk", "paneer"]);
+// A bare "banana" / "kela" means the fruit, not a banana-based recipe.
+// Exact token whitelist excludes peppers, chips, pancakes, smoothies, desserts.
+const PLAIN_BANANA_ALLOWED_TOKENS = new Set([
+  "banana", "raw", "ripe", "slightly", "fresh", "green", "yellow",
+  "unripe", "whole", "peeled", "peel", "without", "organic",
+  "fruit", "frozen", "unsweetened", "mature", "cavendish", "nfs"
+]);
+
 
 function tokens(value) {
   return String(value).toLowerCase().match(/[a-z0-9]+/g)?.map(t => NORMALIZE[t] || t)
@@ -44,6 +52,11 @@ export function matchUsdaFoods(query, foods, limit = 5) {
   for (const row of foods) {
     if (!usable(row)) continue;
     const nameTokens = [...new Set(tokens(row.name))];
+    // Whole banana fruit queries must not suggest prepared foods.
+    // Explicit queries such as "banana smoothie" still use normal matching.
+    if (qt.length === 1 && qt[0] === "banana" &&
+        nameTokens.some(t => !PLAIN_BANANA_ALLOWED_TOKENS.has(t))) continue;
+
     if (!allPresent(core, nameTokens)) continue;
     if (!allPresent(qt.filter(t => PREP.has(t) || t === "white" || t === "brown"), nameTokens)) continue;
     const extra = nameTokens.filter(t => !qt.includes(t));
