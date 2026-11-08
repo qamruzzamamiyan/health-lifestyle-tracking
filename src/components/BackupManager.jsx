@@ -9,7 +9,12 @@ import {
   AlertTriangle
 } from "lucide-react";
 
-import { defaultTasks } from "./RoutineTracker";
+import {
+  readDailyRoutineForBackup,
+  validateDailyRoutineBackup,
+  ROUTINE_TASKS_KEY,
+  ROUTINE_CHECKS_KEY
+} from "../utils/dailyRoutineBackup";
 
 // Existing app storage keys
 const KEYS = {
@@ -54,7 +59,9 @@ function getAllData() {
     settings: readJSON(
       KEYS.settings,
       DEFAULT_SETTINGS
-    )
+    ),
+
+    dailyRoutine: readDailyRoutineForBackup()
   };
 }
 
@@ -240,6 +247,12 @@ if (d.settings !== undefined) {
 }
 
 
+  // New section is optional to preserve older version-1 backups.
+  // Validate ALL sections before writing any localStorage keys.
+  if (d.dailyRoutine !== undefined) {
+    validateDailyRoutineBackup(d.dailyRoutine);
+  }
+
   return d;
 }
 
@@ -329,23 +342,33 @@ export default function BackupManager() {
       }
 
       if (type === "routine") {
-        headers = [
-          "Date", "Task", "Completed"
-        ];
+        // New Daily Routine, not the old RoutineTracker's default tasks.
+        headers = ["Date", "Task", "Checklist Item", "Completed"];
+        const { tasks, checksByDay } = data.dailyRoutine;
+        const dates = Object.keys(checksByDay).sort();
 
-        const tasks = [
-          ...defaultTasks,
-          ...data.customTasks
-        ];
-
-        rows = Object.entries(data.routine).flatMap(
-          ([date, completedIds]) =>
-            tasks.map(task => [
-              date,
-              task.name,
-              completedIds.includes(task.id) ? "Yes" : "No"
-            ])
-        );
+        rows = dates.length > 0
+          ? dates.flatMap(date =>
+              tasks.flatMap(task =>
+                task.items.map(item => {
+                  const dailyChecks = checksByDay[date];
+                  const checked = Object.prototype.hasOwnProperty.call(
+                    dailyChecks, item.id
+                  );
+                  return [
+                    date,
+                    task.title,
+                    item.title,
+                    checked ? (dailyChecks[item.id] ? "Yes" : "No") : "Not recorded"
+                  ];
+                })
+              )
+            )
+          : tasks.flatMap(task =>
+              task.items.map(item => [
+                "", task.title, item.title, "Not recorded"
+              ])
+            );
       }
 
       downloadCSV(
@@ -386,6 +409,11 @@ export default function BackupManager() {
         [KEYS.workouts]: JSON.stringify(data.workouts),
         [KEYS.weights]: JSON.stringify(data.weights),
         [KEYS.weightTarget]: data.weightTarget,
+        // Older backups have no dailyRoutine section: keep current tasks unchanged.
+        ...(data.dailyRoutine !== undefined ? {
+          [ROUTINE_TASKS_KEY]: JSON.stringify(data.dailyRoutine.tasks),
+          [ROUTINE_CHECKS_KEY]: JSON.stringify(data.dailyRoutine.checksByDay)
+        } : {}),
         ...(data.settings !== undefined
   ? {
       [KEYS.settings]: JSON.stringify(
@@ -397,7 +425,8 @@ export default function BackupManager() {
 
       const previousValues = {};
 
-      for (const key of Object.values(KEYS)) {
+      // Snapshot ALL keys to be replaced, including new Daily Routine keys.
+      for (const key of Object.keys(nextValues)) {
         previousValues[key] = localStorage.getItem(key);
       }
 
@@ -491,9 +520,9 @@ export default function BackupManager() {
         </h3>
 
         <p className="mt-2 text-sm leading-6 text-slate-500">
-          Download your nutrition, routine, gym and weekly
-          weight data, including your custom tasks and
-          weight target, as one JSON file.
+          Download your nutrition, gym and weekly weight data,
+          including your custom Daily Routine tasks, checklists,
+          date-wise history and weight target, as one JSON file.
         </p>
 
         <button

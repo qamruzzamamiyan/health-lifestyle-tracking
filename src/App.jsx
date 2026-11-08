@@ -1,10 +1,11 @@
 import WorkoutSummaryCard from "./components/WorkoutSummaryCard";
+import CustomRoutineSummaryCard from "./components/CustomRoutineSummaryCard";
 import WeightTracker from "./components/WeightTracker";
 import AnalyticsTracker from "./components/AnalyticsTracker";
 import WorkoutTracker from "./components/WorkoutTracker";
 import BackupManager from "./components/BackupManager";
 import RoutineSummaryCard from "./components/RoutineSummaryCard";
-import RoutineTracker from "./components/RoutineTracker";
+import DailyRoutineTasks from "./components/DailyRoutineTasks";
 import { useState, useEffect } from "react";
 
 
@@ -522,7 +523,7 @@ const latestWeight = [...weightEntries]
                 </div>
 
 {/* DAILY ROUTINE SUMMARY */}
-<RoutineSummaryCard
+<CustomRoutineSummaryCard
   onOpen={() => navigate("routine")}
 />
 
@@ -622,7 +623,7 @@ const latestWeight = [...weightEntries]
     proteinMax={appSettings.proteinMax}
           />
           ) : activePage === "routine" ? (
-  <RoutineTracker routineStart={appSettings.routineStart} />
+  <DailyRoutineTasks />
   ) : activePage === "gym" ? (
   <WorkoutTracker gymDays={appSettings.gymDays}
     gymStart={appSettings.gymStart}
