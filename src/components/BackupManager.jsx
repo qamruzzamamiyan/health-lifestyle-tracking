@@ -1,4 +1,9 @@
 import { DEFAULT_SETTINGS } from "./SettingsPage";
+// STEP22_PLANNER_BACKUP
+import {
+  readPlannerForBackup, validatePlannerBackup,
+  SKILLS_KEY, TIMETABLE_KEY, SESSION_CHECKS_KEY,
+} from "../utils/routinePlannerData";
 import { useState } from "react";
 import {
   DatabaseBackup,
@@ -61,7 +66,8 @@ function getAllData() {
       DEFAULT_SETTINGS
     ),
 
-    dailyRoutine: readDailyRoutineForBackup()
+    dailyRoutine: readDailyRoutineForBackup(),
+    planner: readPlannerForBackup()
   };
 }
 
@@ -252,6 +258,8 @@ if (d.settings !== undefined) {
   if (d.dailyRoutine !== undefined) {
     validateDailyRoutineBackup(d.dailyRoutine);
   }
+  // Optional: backups created before Step22 never overwrite current skills/schedule.
+  if (d.planner !== undefined) validatePlannerBackup(d.planner);
 
   return d;
 }
@@ -409,6 +417,12 @@ export default function BackupManager() {
         [KEYS.workouts]: JSON.stringify(data.workouts),
         [KEYS.weights]: JSON.stringify(data.weights),
         [KEYS.weightTarget]: data.weightTarget,
+        // Add planner keys to the SAME rollback transaction as all other modules.
+        ...(data.planner !== undefined ? {
+          [SKILLS_KEY]: JSON.stringify(data.planner.skills),
+          [TIMETABLE_KEY]: JSON.stringify(data.planner.schedules),
+          [SESSION_CHECKS_KEY]: JSON.stringify(data.planner.sessionChecksByDay),
+        } : {}),
         // Older backups have no dailyRoutine section: keep current tasks unchanged.
         ...(data.dailyRoutine !== undefined ? {
           [ROUTINE_TASKS_KEY]: JSON.stringify(data.dailyRoutine.tasks),

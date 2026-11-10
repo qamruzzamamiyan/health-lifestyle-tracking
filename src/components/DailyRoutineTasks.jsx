@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { parseRoadmapText } from "../utils/roadmapParser";
 import { roadmapFileAccept } from "../utils/readRoadmapFile";
+import SkillsPanel from "./SkillsPanel";
+import TimetablePanel from "./TimetablePanel";
 import { ROUTINE_UPDATED_EVENT } from "../utils/dailyRoutineData";
 
 // Keep the same keys as Step 21A, so existing custom tasks and daily checks remain.
@@ -59,6 +61,8 @@ export default function DailyRoutineTasks() {
   const [selectedDate, setSelectedDate] = useState(getLocalDate);
   const lastLocalDate = useRef(getLocalDate());
   const [activeTaskId, setActiveTaskId] = useState(null);
+  const [activeTab, setActiveTab] = useState("tasks");
+  const [linkedSkillId, setLinkedSkillId] = useState(null);
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newChecklistTitle, setNewChecklistTitle] = useState("");
@@ -282,6 +286,26 @@ export default function DailyRoutineTasks() {
         </p>
       )}
 
+      {/* STEP22_NAVIGATION: Keep original Tasks tree intact. */}
+      <nav aria-label="Daily Routine sections" className="grid grid-cols-3 gap-2 rounded-2xl border border-slate-200 bg-white p-2">
+        {[["tasks","Tasks"],["skills","Skills"],["timetable","Timetable"]].map(([id,label]) => (
+          <button key={id} type="button" onClick={() => setActiveTab(id)}
+            aria-current={activeTab === id ? "page" : undefined}
+            className={`rounded-xl px-2 py-3 text-sm font-semibold transition ${activeTab === id
+              ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-slate-100"}`}>{label}</button>
+        ))}
+      </nav>
+      {activeTab === "skills" ? (
+        <SkillsPanel focusSkillId={linkedSkillId} onFocusHandled={() => setLinkedSkillId(null)} />
+      ) : activeTab === "timetable" ? (
+        <TimetablePanel selectedDate={selectedDate} onSelectedDateChange={setSelectedDate}
+          tasks={tasks}
+          onOpenLinked={(type,id) => {
+            if (type === "task") { setActiveTaskId(id); setActiveTab("tasks"); }
+            if (type === "skill") { setLinkedSkillId(id); setActiveTab("skills"); }
+          }} />
+      ) : (
+        <>
       {/* The date selector remains at the top, like the original routine page. */}
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <label htmlFor="hlt-routine-date" className="block text-sm font-semibold">Select Date</label>
@@ -574,6 +598,9 @@ export default function DailyRoutineTasks() {
             </form>
           </div>
         </div>
+      )}
+
+        </>
       )}
 
       <p className="text-xs text-slate-500">

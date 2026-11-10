@@ -6,6 +6,7 @@ import WorkoutTracker from "./components/WorkoutTracker";
 import BackupManager from "./components/BackupManager";
 import RoutineSummaryCard from "./components/RoutineSummaryCard";
 import DailyRoutineTasks from "./components/DailyRoutineTasks";
+import PlannerDashboardCard from "./components/PlannerDashboardCard";
 import { useState, useEffect } from "react";
 
 
@@ -526,6 +527,8 @@ const latestWeight = [...weightEntries]
 <CustomRoutineSummaryCard
   onOpen={() => navigate("routine")}
 />
+{/* STEP22_PLANNER_DASHBOARD */}
+<PlannerDashboardCard onOpen={() => navigate("routine")} />
 
 {/* GYM WORKOUT SUMMARY */}
 <WorkoutSummaryCard
